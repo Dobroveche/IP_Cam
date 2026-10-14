@@ -467,7 +467,11 @@ class CameraService : Service(), LifecycleOwner, CameraServiceInterface {
     
     companion object {
          private const val TAG = "CameraService"
-         private const val CHANNEL_ID = "CameraServiceChannel"
+         // Silent channel for the ongoing service notification. A new ID is needed because
+         // an existing channel's importance can't be lowered after it is created.
+         private const val CHANNEL_ID = "CameraServiceChannelSilent"
+         private const val OLD_CHANNEL_ID = "CameraServiceChannel"
+         private const val ALERT_CHANNEL_ID = "CameraAlertsChannel"
          private const val NOTIFICATION_ID = 1
          private const val PORT = 8080
          private const val MAX_PORT = 65535
@@ -708,13 +712,24 @@ class CameraService : Service(), LifecycleOwner, CameraServiceInterface {
         val channel = NotificationChannel(
             CHANNEL_ID,
             "IP Camera Service",
-            NotificationManager.IMPORTANCE_DEFAULT  // Changed from LOW to DEFAULT for better persistence
+            NotificationManager.IMPORTANCE_LOW  // No sound or vibration on status updates
         ).apply {
             description = "Keeps camera service running in background"
             setShowBadge(true)
+            setSound(null, null)
+            enableVibration(false)
+        }
+        val alertChannel = NotificationChannel(
+            ALERT_CHANNEL_ID,
+            "IP Camera Alerts",
+            NotificationManager.IMPORTANCE_DEFAULT
+        ).apply {
+            description = "Server errors and port changes"
         }
         val manager = getSystemService(NotificationManager::class.java)
+        manager.deleteNotificationChannel(OLD_CHANNEL_ID)
         manager.createNotificationChannel(channel)
+        manager.createNotificationChannel(alertChannel)
     }
     
     private fun isPortAvailable(port: Int): Boolean {
@@ -788,7 +803,9 @@ class CameraService : Service(), LifecycleOwner, CameraServiceInterface {
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .setContentIntent(pendingIntent)
             .setOngoing(true)  // Make notification persistent
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)  // Increase priority
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
     }
@@ -891,7 +908,7 @@ class CameraService : Service(), LifecycleOwner, CameraServiceInterface {
         val notificationManager = getSystemService(NotificationManager::class.java)
         
         // Create a separate notification for user alerts
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+        val notification = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))

@@ -30,6 +30,10 @@ import android.os.PowerManager
 import android.util.Log
 import android.util.Size
 import android.view.OrientationEventListener
+import androidx.camera.camera2.interop.Camera2CameraControl
+import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.CaptureRequestOptions
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
@@ -240,6 +244,7 @@ class CameraService : Service(), LifecycleOwner, CameraServiceInterface {
     private var cameraStateLiveData: androidx.lifecycle.LiveData<androidx.camera.core.CameraState>? = null
     private var cameraStateObserver: androidx.lifecycle.Observer<androidx.camera.core.CameraState>? = null
     @Volatile private var isFlashlightOn: Boolean = false
+    @Volatile private var isNightModeOn: Boolean = false
     @Volatile private var hasFlashUnit: Boolean = false
     @Volatile private var isTorchOperationInProgress: Boolean = false // Prevent concurrent torch operations
     // Camera binding state management
@@ -2109,6 +2114,53 @@ class CameraService : Service(), LifecycleOwner, CameraServiceInterface {
         }
     }
     
+    override fun toggleNightMode(): Boolean {
+        isNightModeOn = !isNightModeOn
+        applyNightMode()
+        saveSettings()
+        broadcastCameraState()
+        safeInvokeCameraStateCallback(currentCamera)
+        return isNightModeOn
+    }
+
+    override fun isNightModeEnabled(): Boolean = isNightModeOn
+
+    /**
+     * Night mode for low light: maximum exposure compensation, the lowest AE frame rate
+     * range the camera offers (longer exposure per frame) and a monochrome effect to
+     * reduce colour noise. Applied through Camera2 so it affects both MJPEG and RTSP.
+     */
+    @androidx.annotation.OptIn(ExperimentalCamera2Interop::class)
+    private fun applyNightMode() {
+        val cam = camera ?: return
+        try {
+            val exposureState = cam.cameraInfo.exposureState
+            if (exposureState.isExposureCompensationSupported) {
+                val index = if (isNightModeOn) exposureState.exposureCompensationRange.upper else 0
+                cam.cameraControl.setExposureCompensationIndex(index)
+            }
+
+            val camera2Info = Camera2CameraInfo.from(cam.cameraInfo)
+            val options = CaptureRequestOptions.Builder()
+            if (isNightModeOn) {
+                camera2Info.getCameraCharacteristic(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
+                    ?.minWithOrNull(compareBy<android.util.Range<Int>>({ it.lower }, { it.upper }))
+                    ?.let { options.setCaptureRequestOption(android.hardware.camera2.CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, it) }
+                val effects = camera2Info.getCameraCharacteristic(CameraCharacteristics.CONTROL_AVAILABLE_EFFECTS)
+                if (effects?.contains(android.hardware.camera2.CameraMetadata.CONTROL_EFFECT_MODE_MONO) == true) {
+                    options.setCaptureRequestOption(
+                        android.hardware.camera2.CaptureRequest.CONTROL_EFFECT_MODE,
+                        android.hardware.camera2.CameraMetadata.CONTROL_EFFECT_MODE_MONO
+                    )
+                }
+            }
+            Camera2CameraControl.from(cam.cameraControl).setCaptureRequestOptions(options.build())
+            Log.i(TAG, "Night mode ${if (isNightModeOn) "enabled" else "disabled"}")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to apply night mode: ${e.message}")
+        }
+    }
+
     /**
      * Toggle flashlight on/off
      * Works for any camera with flash unit capability
@@ -2547,6 +2599,7 @@ class CameraService : Service(), LifecycleOwner, CameraServiceInterface {
         maxConnections = prefs.getInt(PREF_MAX_CONNECTIONS, HTTP_DEFAULT_MAX_POOL_SIZE)
             .coerceIn(HTTP_MIN_MAX_POOL_SIZE, HTTP_ABSOLUTE_MAX_POOL_SIZE)
         isFlashlightOn = prefs.getBoolean("flashlightOn", false)
+        isNightModeOn = prefs.getBoolean("nightMode", false)
         
         // NOTE: RTSP is now on-demand only, no persistence of enabled state
         // Only persist RTSP configuration (bitrate, mode) for when it's activated
@@ -2627,6 +2680,7 @@ class CameraService : Service(), LifecycleOwner, CameraServiceInterface {
             
             putInt(PREF_MAX_CONNECTIONS, maxConnections)
             putBoolean("flashlightOn", isFlashlightOn)
+            putBoolean("nightMode", isNightModeOn)
             
             // NOTE: RTSP enabled state is NOT persisted (on-demand only)
             // Only save RTSP configuration for when it's activated
@@ -2802,6 +2856,9 @@ class CameraService : Service(), LifecycleOwner, CameraServiceInterface {
                     if (isFlashlightOn && hasFlashUnit) {
                         Log.d(TAG, "Camera opened - restoring torch state")
                         enableTorch(true)
+                    }
+                    if (isNightModeOn) {
+                        applyNightMode()
                     }
                 }
             }

@@ -115,10 +115,25 @@
                             });
                     }
 
+                    function toggleNightMode() {
+                        fetch('/toggleNightMode')
+                            .then(response => response.json())
+                            .then(data => {
+                                showAlert(data.message, 'success');
+                                updateFlashlightButton();
+                            })
+                            .catch(error => {
+                                showAlert('Error toggling night mode: ' + error, 'danger');
+                            });
+                    }
+
                     function updateFlashlightButton() {
                         fetch('/status')
                             .then(response => response.json())
                             .then(data => {
+                                const nightButton = document.getElementById('nightModeButton');
+                                nightButton.textContent = data.nightMode ? 'Night mode: ON' : 'Night mode: OFF';
+                                nightButton.className = data.nightMode ? 'warning' : 'success';
                                 const button = document.getElementById('flashlightButton');
                                 if (data.flashlightAvailable) {
                                     button.disabled = false;

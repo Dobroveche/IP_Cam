@@ -151,6 +151,7 @@ class HttpServer(
                 get("/toggleFlashlight") { serveToggleFlashlight() }
                 get("/flashOn") { serveFlashlightOn() }
                 get("/flashOff") { serveFlashlightOff() }
+                get("/toggleNightMode") { serveToggleNightMode() }
                 
                 // Status and monitoring
                 get("/status") { serveStatus() }
@@ -666,7 +667,7 @@ class HttpServer(
         val deviceName = cameraService.getDeviceName()
         val cameraState = cameraService.getCameraStateString()
         
-        val endpoints = "[\"/\", \"/snapshot\", \"/stream\", \"/switch\", \"/status\", \"/metrics\", \"/events\", \"/toggleFlashlight\", \"/flashOn\", \"/flashOff\", \"/formats\", \"/connections\", \"/stats\", \"/overrideBatteryLimit\", \"/cameraState\", \"/activateCamera\", \"/deactivateCamera\", \"/checkUpdate\", \"/triggerUpdate\", \"/reboot\"]"
+        val endpoints = "[\"/\", \"/snapshot\", \"/stream\", \"/switch\", \"/status\", \"/metrics\", \"/events\", \"/toggleFlashlight\", \"/flashOn\", \"/flashOff\", \"/toggleNightMode\", \"/formats\", \"/connections\", \"/stats\", \"/overrideBatteryLimit\", \"/cameraState\", \"/activateCamera\", \"/deactivateCamera\", \"/checkUpdate\", \"/triggerUpdate\", \"/reboot\"]"
         
         val json = """
             {
@@ -679,6 +680,7 @@ class HttpServer(
                 "resolution": "${cameraService.getSelectedResolutionLabel()}",
                 "flashlightAvailable": ${cameraService.isFlashlightAvailable()},
                 "flashlightOn": ${cameraService.isFlashlightEnabled()},
+                "nightMode": ${cameraService.isNightModeEnabled()},
                 "activeConnections": $activeConns,
                 "maxConnections": $maxConns,
                 "connections": "$activeConns/$maxConns",
@@ -1156,6 +1158,14 @@ class HttpServer(
         }
     }
     
+    private suspend fun PipelineContext<Unit, ApplicationCall>.serveToggleNightMode() {
+        val newState = cameraService.toggleNightMode()
+        call.respondText(
+            """{"status":"ok","message":"Night mode ${if (newState) "enabled" else "disabled"}","nightMode":$newState}""",
+            ContentType.Application.Json
+        )
+    }
+
     private suspend fun PipelineContext<Unit, ApplicationCall>.serveToggleFlashlight() {
         if (!cameraService.isFlashlightAvailable()) {
             call.respondText(

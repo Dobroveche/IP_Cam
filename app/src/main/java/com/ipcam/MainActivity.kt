@@ -48,6 +48,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var rotationSpinner: Spinner
     private lateinit var switchCameraButton: Button
     private lateinit var flashlightButton: Button
+    private lateinit var nightModeButton: Button
     private lateinit var startStopButton: Button
     private lateinit var autoStartCheckBox: android.widget.CheckBox
     private lateinit var activeConnectionsText: TextView
@@ -363,6 +364,7 @@ class MainActivity : AppCompatActivity() {
         rotationSpinner = findViewById(R.id.rotationSpinner)
         switchCameraButton = findViewById(R.id.switchCameraButton)
         flashlightButton = findViewById(R.id.flashlightButton)
+        nightModeButton = findViewById(R.id.nightModeButton)
         startStopButton = findViewById(R.id.startStopButton)
         autoStartCheckBox = findViewById(R.id.autoStartCheckBox)
         activeConnectionsText = findViewById(R.id.activeConnectionsText)
@@ -482,6 +484,11 @@ class MainActivity : AppCompatActivity() {
         
         flashlightButton.setOnClickListener {
             toggleFlashlight()
+        }
+
+        nightModeButton.setOnClickListener {
+            cameraService?.toggleNightMode()
+            updateNightModeButton()
         }
         
         startStopButton.setOnClickListener {
@@ -1289,6 +1296,13 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
     
+    private fun updateNightModeButton() {
+        val service = cameraService ?: return
+        nightModeButton.text = getString(
+            if (service.isNightModeEnabled()) R.string.night_mode_on else R.string.night_mode_off
+        )
+    }
+
     private fun updateFlashlightButton() {
         val service = cameraService ?: return
         
@@ -1388,6 +1402,7 @@ class MainActivity : AppCompatActivity() {
         
         // Update flashlight button
         updateFlashlightButton()
+        updateNightModeButton()
         
         // Update connections UI
         updateConnectionsUI()

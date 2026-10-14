@@ -245,6 +245,9 @@ class CameraService : Service(), LifecycleOwner, CameraServiceInterface {
     private var cameraStateObserver: androidx.lifecycle.Observer<androidx.camera.core.CameraState>? = null
     @Volatile private var isFlashlightOn: Boolean = false
     @Volatile private var isNightModeOn: Boolean = false
+    // Set when the user explicitly exits, so onTaskRemoved() doesn't schedule a restart
+    @Volatile private var exitRequested: Boolean = false
+    private var onExitRequestedCallback: (() -> Unit)? = null
     @Volatile private var hasFlashUnit: Boolean = false
     @Volatile private var isTorchOperationInProgress: Boolean = false // Prevent concurrent torch operations
     // Camera binding state management
@@ -491,6 +494,7 @@ class CameraService : Service(), LifecycleOwner, CameraServiceInterface {
          private const val CAMERA_REBIND_DEBOUNCE_MS = 500L // Minimum time between rebind requests
          // Intent extras
          const val EXTRA_START_SERVER = "start_server"
+         const val ACTION_EXIT = "com.ipcam.action.EXIT"
          // Thread pool settings for NanoHTTPD
          // Maximum parallel connections: HTTP_MAX_POOL_SIZE (32 concurrent connections)
          // Separate pools for request handlers and long-lived streaming connections
@@ -630,6 +634,11 @@ class CameraService : Service(), LifecycleOwner, CameraServiceInterface {
     }
     
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_EXIT) {
+            exitApp()
+            return START_NOT_STICKY
+        }
+        exitRequested = false
         acquireLocks()
         
         // Check if we should start the server based on intent extra
@@ -650,6 +659,10 @@ class CameraService : Service(), LifecycleOwner, CameraServiceInterface {
     
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
+        if (exitRequested) {
+            Log.d(TAG, "Task removed after user exit - not restarting")
+            return
+        }
         Log.d(TAG, "Task removed - restarting service")
         
         // Restart the service immediately when task is removed
@@ -808,6 +821,15 @@ class CameraService : Service(), LifecycleOwner, CameraServiceInterface {
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .setContentIntent(pendingIntent)
             .setOngoing(true)  // Make notification persistent
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                "Exit",
+                PendingIntent.getService(
+                    this, 2,
+                    Intent(this, CameraService::class.java).setAction(ACTION_EXIT),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+            )
             .setOnlyAlertOnce(true)
             .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -2754,8 +2776,27 @@ class CameraService : Service(), LifecycleOwner, CameraServiceInterface {
      * LIFECYCLE SAFETY: This method ensures callbacks are cleared when MainActivity is destroyed,
      * preventing CameraService from holding stale references to destroyed Activity contexts.
      */
+    fun setOnExitRequestedCallback(callback: (() -> Unit)?) {
+        onExitRequestedCallback = callback
+    }
+
+    /**
+     * Fully stop the app at the user's request: stop the server, drop the foreground
+     * notification and stop the service. The service is destroyed once MainActivity
+     * (if open) unbinds, which it does after closing itself via the exit callback.
+     */
+    fun exitApp() {
+        Log.i(TAG, "Exit requested by user")
+        exitRequested = true
+        stopServer()
+        onExitRequestedCallback?.invoke()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
     fun clearCallbacks() {
         Log.d(TAG, "Clearing all MainActivity callbacks")
+        onExitRequestedCallback = null
         onCameraStateChangedCallback = null
         onFrameAvailableCallback = null
         onConnectionsChangedCallback = null

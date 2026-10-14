@@ -49,6 +49,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var switchCameraButton: Button
     private lateinit var flashlightButton: Button
     private lateinit var nightModeButton: Button
+    private lateinit var exitButton: Button
     private lateinit var startStopButton: Button
     private lateinit var autoStartCheckBox: android.widget.CheckBox
     private lateinit var activeConnectionsText: TextView
@@ -256,6 +257,10 @@ class MainActivity : AppCompatActivity() {
             cameraService = binder.getService()
             isServiceBound = true
             
+            cameraService?.setOnExitRequestedCallback {
+                runOnUiThread { finishAndRemoveTask() }
+            }
+
             // Set up callbacks to receive updates from the service
             cameraService?.setOnCameraStateChangedCallback { _ ->
                 runOnUiThread {
@@ -365,6 +370,7 @@ class MainActivity : AppCompatActivity() {
         switchCameraButton = findViewById(R.id.switchCameraButton)
         flashlightButton = findViewById(R.id.flashlightButton)
         nightModeButton = findViewById(R.id.nightModeButton)
+        exitButton = findViewById(R.id.exitButton)
         startStopButton = findViewById(R.id.startStopButton)
         autoStartCheckBox = findViewById(R.id.autoStartCheckBox)
         activeConnectionsText = findViewById(R.id.activeConnectionsText)
@@ -489,6 +495,15 @@ class MainActivity : AppCompatActivity() {
         nightModeButton.setOnClickListener {
             cameraService?.toggleNightMode()
             updateNightModeButton()
+        }
+
+        exitButton.setOnClickListener {
+            val service = cameraService
+            if (service != null) {
+                service.exitApp()
+            } else {
+                finishAndRemoveTask()
+            }
         }
         
         startStopButton.setOnClickListener {
